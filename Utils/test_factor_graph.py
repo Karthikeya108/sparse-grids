@@ -5,7 +5,7 @@ fac.create_factor_graph(3)
 
 print "Node List: ",fac.nodes
 print "Complete factors: ",fac.factors
-fac.coarsen_factor_graph([(1,),(1, 2, 4), (1, 3, 4), (2, 3, 4)])
+fac.coarsen_factor_graph([(1,),(1, 2, 3), (1, 3, 0), (2, 3, 0)])
 
 print "Factors after coarsening: ",fac.factors
 
