@@ -16,7 +16,7 @@ class factor_graph:
 	def __init__(self, dim):
 		self.dim = dim
 		self.nodes = []
-		for n in xrange(1,dim+1):
+		for n in xrange(dim):
                         self.nodes[len(self.nodes):] = [n]
 		
 		self.factors = {}
@@ -31,6 +31,6 @@ class factor_graph:
 
 	def coarsen_factor_graph(self, delete_list):
 		for i in delete_list:
-			self.factors[len(i)].remove(i)
+			self.factors[len(i)].remove(tuple(sorted(i)))
 		
 	
