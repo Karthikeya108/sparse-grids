@@ -68,20 +68,22 @@ def make_model(grid, alpha, factor_graph):
     #Potentials
     def psi_logp(anova, v):
         return anova[v]
-    
+
     psi = {}
     for key, value in factor_graph.factors.iteritems():
 	psi[key] = np.empty(len(value), dtype=object)
     	for v in xrange(len(value)):
-        	psi[key][v] = pm.Potential(logp = lambda anova, v=v: psi_logp(anova, value[v]),
-                            name = 'psi_'+str(key)+str(v),
+        	psi[key][v] = pm.Potential(logp = lambda anova, value=value, v=v: psi_logp(anova, value[v]),
+                            name = 'psi_'+str(key)+str(value[v]),
                             parents = {'anova': anova},
                             doc = 'A '+str(key)+' Variate potential',
                             verbose = 0,
                             cache_depth = key)
-	
+	#<value> HAS to be DELETED, otherwise the pymc module complains. Looks like no unnecessary array of elements can be left in memory
+    	del value
+
     x = pm.ArrayContainer(x)
-    
+
     for key in psi:
     	psi[key] = pm.ArrayContainer(psi[key])
     
