@@ -17,6 +17,7 @@ def coarseningFunction(grid, factor_graph):
                 	if grid_index.getLevel(d) != 1:
                         	levels = levels + (d,)
 		if len(levels) != 0:
+			levels = tuple(sorted(levels))
 			nInteract_factors = factor_graph.factors[len(levels)]
 			#If the corresponding interaction is not in the factor graph then set the correspoding alpha to 0
 			if levels not in nInteract_factors:
