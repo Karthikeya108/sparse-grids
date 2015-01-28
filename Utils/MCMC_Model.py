@@ -9,9 +9,9 @@ def make_model(grid, alpha, factor_graph):
     dim = factor_graph.dim
     x = np.empty(dim, dtype=object)
     for i in xrange(dim):
-        #x[i] = pm.distributions.Uniform('x'+str(i), lower=0, upper=1.0)
+        x[i] = pm.distributions.Uniform('x'+str(i), lower=0, upper=1.0)
         # Normal distribution for diagnostics
-        x[i] = pm.distributions.Normal('x'+str(i), mu= 0.5, tau=1)
+        #x[i] = pm.distributions.Normal('x'+str(i), mu= 0.5, tau=1)
     
     # anova components as deterministic variable
     def compute_ANOVA_components(x, alpha, grid, factor_graph):

@@ -11,7 +11,9 @@ from painlesscg import cg,sd,cg_new
 
 from skmonaco import mcquad
 import numpy as np
-from MCMC_GridUtils import *
+from MCMC_Model import *
+from Coarsen_Grid import *
+from factor_graph import *
 #-------------------------------------------------------------------------------
 ## Outputs a deprecated warning for an option
 # @param option Parameter set by the OptionParser
@@ -226,174 +228,38 @@ def calcq(grid,values):
 
         return q
 
-def denFunction(grid, alpha, x):
-	summ = 0
-	gdim = grid.getStorage().dim()
-	gsize = grid.getStorage().size()
-	x = DataVector(gsize)
-	for i in range(gsize):
-		gpoint = grid.getStorage().get(i)
-		summ = summ + alpha[i] * basisFunction(gpoint, gdim, x)
-	return np.exp(summ)
-	
-def calcDenominator(grid, alpha):
-	result, error = mcquad(lambda x: denFunction(grid, alpha, x), xl=[0.], xu=[1.], npoints=10000)
-	print "den NL Result: ",result
-	print "den NL Error: ",error
-	return result
-
-def wholeFunction(grid, alpha, g, x):
-	summ = 0
-	gdim = grid.getStorage().dim()
-	gsize = grid.getStorage().size()
-	for i in range(gsize):
-		gpoint = grid.getStorage().get(i)
-		summ = summ + alpha[i] * basisFunction(gpoint, gdim, x)
-        numerator = np.exp(summ)
-	
-	ggpoint = grid.getStorage().get(g)
-	return basisFunction(ggpoint, gdim, x) * numerator
-
-def make_model(grid, alpha, dim):
-    """ Creates the variables for my graphical model. This function is not generic"""
-    x = np.empty(dim, dtype=object)
-    for i in xrange(dim):
-        #x[i] = pm.distributions.Uniform('x'+str(i), lower=0, upper=1.0)
-        # Normal distribution for diagnostics
-        x[i] = pm.distributions.Normal('x'+str(i), mu= 0.5, tau=1)
-    
-    # univariate potentials
-    def psi_i_logp(anova, i): 
-        return anova[(i,)]
-    
-    psi_i = np.empty(dim, dtype=object)
-    
-    # bivariate potentials
-    def psi_ij_logp(anova, i, j):
-    	return anova[tuple(sorted([i,j]))]
-
-    psi_ij = np.empty(dim, dtype=object)
-     
-    # anova components as deterministic variable
-    def compute_ANOVA_components(x, alpha, grid):
-        """Evaluates the sparse grid at the point x and returns 
-           the individual ANOVA components of the result"""
-        x = np.hstack(x).reshape(1, -1)
-        dataPoint = DataMatrix(x)
-        result = DataVector(grid.getSize())
-        result.setAll(0.0)
-        a = DataVector(1)
-        a[0] = 1.0
-        opMultipleEval = createOperationMultipleEval(grid, dataPoint)
-        opMultipleEval.multTranspose(a, result)
-        result = result.array()*alpha.array()
-        
-        anovaComponents = {(-1,):0}
-        for i in xrange(dim):
-            anovaComponents[(i,)] = 0
-            anovaComponents[tuple(sorted((i, (i+1)%dim)))] = 0
-
-        storage = grid.getStorage()
-        for i in xrange(grid.getSize()):
-            grid_index = storage.get(i)
-            key = []
-            for d in xrange(dim):
-                levelDimension = grid_index.getLevel(d)
-                if levelDimension != 1:
-                    key.append(d)
-            if key == []: anovaComponents[(-1,)] += result[i]
-            else:
-                key = tuple(key)
-		if key in anovaComponents:
-                	anovaComponents[key] += result[i]
-        return anovaComponents # it is fine to return dictionary
-            
-            
-    anova = pm.Deterministic(eval = lambda x: compute_ANOVA_components(x, alpha, grid),
-                  name = 'anova',
-                  parents = {'x': x},
-                  doc = 'Individual anova component contributions',
-                  trace = True,
-                  verbose = 0,
-                  plot=False,
-                  cache_depth = 2)
-    
-    # constant factor ot the ANOVA component
-    psi_0 = pm.Potential(logp = lambda anova: anova[(-1,)],
-                            name = 'psi_0',
-                            parents = {'anova': anova},
-                            doc = 'Potential corresponding to the constant factor',
-                            verbose = 0,
-                            cache_depth = 1)
-    
-    
-    for i in xrange(dim):  
-        psi_i[i] = pm.Potential(logp = lambda anova, i=i: psi_i_logp(anova, i),
-                            name = 'psi_i'+str(i),
-                            parents = {'anova': anova},
-                            doc = 'A univariate potential',
-                            verbose = 0,
-                            cache_depth = 1)
-    
-    
-    for i in xrange(dim):  
-        j = (i+1)%dim # this is just how I connect the variables in my graphical model. It's not generic
-        psi_ij[i] = pm.Potential(logp = lambda anova, i=i, j=j: psi_ij_logp(anova, i, j),
-                            name = 'psi_ij%d%d'%(i,j),
-                            parents = {'anova': anova},
-                            doc = 'A bivariate potential',
-                            verbose = 0,
-                            cache_depth = 2)
-    
-    # for some reason pm.Model cannot be created is the arrays are not converted to
-    # ArrayContainers before (dict. name becomes an integer and Python complains)
-    x = pm.ArrayContainer(x)
-    psi_i = pm.ArrayContainer(psi_i)
-    psi_ij = pm.ArrayContainer(psi_ij)
-    return locals()
-
-def calcNLterm(grid, alpha):
-        print "Calculating the Non-linear term"
-	denominator = calcDenominator(grid, alpha)
-	nlTerm = DataVector(grid.getStorage().size())
-	nlError = DataVector(grid.getStorage().size())
-	gdim = grid.getStorage().dim()
-
-	for g in range(grid.getStorage().size()):
-        	func = lambda x: wholeFunction(grid, alpha, g, x)
-		
-		pointDV = pysgpp.DataVector(gdim)
-	
-		storage = grid.getStorage()	
-		for j in xrange(grid.getSize()):
-    			grid_index = storage.get(j)
-    			grid_index.getCoords(pointDV)
-    			x = pointDV.array()
-    			alpha[j] = func(x)
-		
-		opHierarchisation = pysgpp.createOperationHierarchisation(grid)
-		opHierarchisation.doHierarchisation(alpha)
-
-		model = pm.Model(input=make_model(grid, alpha, gdim), name="sg_normal_indep")
-		mcmc = pm.MCMC(model, name="MCMC")
-
-		mcmc.sample(iter=10000, burn=100, thin=5)
-
-		anovaComponents = mcmc.trace('anova')[:]
-		result = [len(anovaComponents)]
-		for i in anovaComponents:
-			summ = 0
-			for j in i.values():
-				summ = summ + j
-			result.append(summ/len(i.values()))
-
-		print result
-
-	return result
-
 def calcA(grid, training):
         print "Calculating A"
 	return np.matrix(np.identity(grid.getSize()), copy=False)
+
+def computeNLterm(grid, alpha, fac):
+	dim = fac.dim
+
+	#initial_val = [np.array([0]), np.array([0])]
+    	model = pm.Model(input=make_model(grid, alpha, fac), name="sg_normal_indep")
+    	mcmc = pm.MCMC(model, name="MCMC")
+
+    	mcmc.sample(iter=10000, burn=100, thin=5)
+
+    	#pm.Matplot.plot(mcmc)
+    	#mcmc.stats()
+	
+	data = vstack([model.x[i].trace() for i in xrange(dim)]).T
+	X = pysgpp.DataMatrix(data)
+    
+	# evaluate grids and exponents
+	operationEvaluation = pysgpp.createOperationMultipleEval(grid, X)
+	y = pysgpp.DataVector(grid.getSize())
+	a = pysgpp.DataVector(data.shape[0])
+	a.setAll(1.0)
+	operationEvaluation.multTranspose(a, y)
+	print type(y.array())
+	print data.shape[0]
+
+	avgs = y.array()/data.shape[0]
+
+	return avgs
+	
 
 def conjugateGradient(b, alpha, imax, epsilon, A, reuse = False, verbose=True, max_threshold=None):
     epsilon2 = epsilon*epsilon
@@ -467,7 +333,7 @@ def conjugateGradient(b, alpha, imax, epsilon, A, reuse = False, verbose=True, m
     return (i,delta_new)
 
 #-------------------------------------------------------------------------------
-def run(grid, alpha, training):
+def run(grid, alpha, fac, training):
     errors = None
     gridSize = grid.getStorage().size()
     print grid.getSize()
@@ -485,11 +351,9 @@ def run(grid, alpha, training):
     print "q value: ",q
     A = createOperationLaplace(grid)
 
-    #alpha = DataVector(grid.getStorage().size())
-    #alpha.setAll(0.0)
-    
-    nlterm = calcNLterm(grid, alpha)
-    
+    nlterm = computeNLterm(grid, alpha, fac)
+    print nlterm
+
     while residual > epsilon and i <= imax:
         
         desMat = createOperationMultipleEval(grid, training)
@@ -526,7 +390,7 @@ def run(grid, alpha, training):
    	A_alpha = DataVector(grid.getStorage().size())
    	
 	A.mult(alpha, A_alpha)
-    	nlterm = calcNLterm(grid, alpha)
+    	nlterm = computeNLterm(grid, alpha, fac)
    	q_val = q + nlterm
 
    	value = DataVector(grid.getStorage().size())
@@ -577,12 +441,15 @@ def doDensityEstimation():
     alpha = DataVector(grid.getSize())
     alpha.setAll(1.0)
 
+    fac = factor_graph(int(dim))
+    fac.create_factor_graph(int(level))
+
     while gsize != newGsize:
     	gsize = newGsize
-    	grid, alpha = coarseningFunction(grid, dim)
+    	grid, alpha = coarseningFunction(grid, fac)
     	newGsize = grid.getSize()
     
-    alpha = run(grid, alpha, training)   
+    alpha = run(grid, alpha, fac, training)   
  
     if options.outfile:
         writeAlphaARFF(options.outfile, alpha)
