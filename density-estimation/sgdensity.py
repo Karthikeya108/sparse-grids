@@ -203,48 +203,33 @@ def basisFunction(gpoint, gdim, val):
 		prod = prod * np.maximum(1 - np.absolute(basisMap), 0)
         return prod
 
-def calcq(grid,values):
-        print "Calculating q"
-	q = DataVector(grid.getStorage().size())
-	noRows = values.getNrows()
-	noCols = values.getNcols()
-	for g in range(grid.getStorage().size()):
-		gp = grid.getStorage().get(g)
-		summ = 0
-		for i in range(noRows):
-                	prodd = 1
-			val = DataVector(noCols)
-			values.getRow(i,val)
-			for j in range(noCols):
-				levInd = gp.get(j)
-				level = levInd[0]
-				index = levInd[1]
-				x = val[j]
-				if not math.isnan(x):
-					basisMap = (2**level)*x - index
-					prodd = prodd * np.maximum(1 - np.absolute(basisMap), 0)
-                	summ = summ + prodd
-		q[g] = summ/noRows
+def calcq(grid, data):
+	X = pysgpp.DataMatrix(data)
+    
+	# evaluate grids and exponents
+	operationEvaluation = pysgpp.createOperationMultipleEval(grid, X)
+	y = pysgpp.DataVector(grid.getSize())
+	a = pysgpp.DataVector(data.getNrows())
+	a.setAll(1.0)
+	operationEvaluation.multTranspose(a, y)
+	
+	avgs = y.array()/data.getNrows()
 
-        return q
-
-def calcA(grid, training):
-        print "Calculating A"
-	return np.matrix(np.identity(grid.getSize()), copy=False)
+	return avgs
 
 def computeNLterm(grid, alpha, fac):
 	dim = fac.dim
 
-	#initial_val = [np.array([0]), np.array([0])]
     	model = pm.Model(input=make_model(grid, alpha, fac), name="sg_normal_indep")
-    	mcmc = pm.MCMC(model, name="MCMC")
-
+	db = pm.database.pickle.load('sg_mcmc.pickle')
+	print "x0 trace: ",len(db.trace('x0',chain=None)[:])
+	print "x1 trace: ",len(db.trace('x1',chain=None)[:])
+    	mcmc = pm.MCMC(model, name="MCMC", db=db)
     	mcmc.sample(iter=10000, burn=100, thin=5)
+	mcmc.db.close()
 
-    	#pm.Matplot.plot(mcmc)
-    	#mcmc.stats()
-	
-	data = vstack([model.x[i].trace() for i in xrange(dim)]).T
+	#Picks up the samples from the last chain
+	data = vstack([model.x[i].trace()[:] for i in xrange(dim)]).T
 	X = pysgpp.DataMatrix(data)
     
 	# evaluate grids and exponents
@@ -253,12 +238,50 @@ def computeNLterm(grid, alpha, fac):
 	a = pysgpp.DataVector(data.shape[0])
 	a.setAll(1.0)
 	operationEvaluation.multTranspose(a, y)
-	print type(y.array())
-	print data.shape[0]
+	print "Size of Last chain of MCMC samples: ",data.shape[0]
 
 	avgs = y.array()/data.shape[0]
+	print "Psi values: ",avgs
 
 	return avgs
+
+def updateFactorGraph(grid, alpha, fac):
+	alpha_threshold = 0.9
+	
+	alpha_levels = {}
+        max_len = 0
+        for k in xrange(grid.getSize()):
+                grid_index = grid.getStorage().get(k)
+                levels = tuple()
+                for d in xrange(fac.dim):
+                        #Fetch the interacting factors
+                        if grid_index.getLevel(d) != 1:
+                                levels = levels + (d,)
+                alpha_levels[k] = tuple(sorted(levels))
+                if max_len < len(levels):
+                        max_len = len(levels)
+                print "Levels, alpha: ",alpha_levels
+
+        if fac.dim > max_len+1:
+                for k in xrange(fac.dim-1,max_len,-1):
+                        fac.factors[k] = []
+
+        level_alphas = {}
+        for key, value in alpha_levels.iteritems():
+		if value not in level_alphas:
+			level_alphas[value] = [alpha[key]]
+                else:
+			level_alphas[value][len(level_alphas[value]):] = [alpha[key]]
+
+        delete_list = []
+        for key, value in level_alphas.iteritems():
+		print "ALpha avg: ",  sum(value)/float(len(value)) 
+                if sum(value)/float(len(value)) < alpha_threshold:
+                        delete_list[len(delete_list):] = [key]
+
+        fac.coarsen_factor_graph(delete_list)
+
+	return fac
 	
 
 def conjugateGradient(b, alpha, imax, epsilon, A, reuse = False, verbose=True, max_threshold=None):
@@ -351,6 +374,13 @@ def run(grid, alpha, fac, training):
     print "q value: ",q
     A = createOperationLaplace(grid)
 
+    #This is just to initialize the pickle db to store the MCMC state
+    model = pm.Model(input=make_model(grid, alpha, fac), name="sg_normal_indep")
+    mcmc = pm.MCMC(model, name="MCMC", db="pickle", dbname="sg_mcmc.pickle")
+    mcmc.db
+    mcmc.sample(iter=100, burn=10, thin=1)
+    mcmc.db.close()
+
     nlterm = computeNLterm(grid, alpha, fac)
     print nlterm
 
@@ -407,6 +437,12 @@ def run(grid, alpha, fac, training):
     	print "*****************Residual***************  ", residual
     	print "+++++++++++++++++i+++++++++++++++++++++   ",i-1
 
+    	fac = updateFactorGraph(grid, alpha, fac)
+
+	print "------------------------------factors---", fac.factors
+
+	grid, alpha = coarseningFunction(grid, alpha, fac) 
+
     print "Alpha: ",alpha
     print grid.getSize()
     return alpha
@@ -430,7 +466,7 @@ def doDensityEstimation():
 
     #grid = constructGrid(dim)
 
-    grid = Grid.createLinearGrid(dim)
+    grid = Grid.createModLinearGrid(dim)
     generator = grid.createGridGenerator()
     generator.regular(level)
     print "Grid size:", grid.getSize()
@@ -446,7 +482,7 @@ def doDensityEstimation():
 
     while gsize != newGsize:
     	gsize = newGsize
-    	grid, alpha = coarseningFunction(grid, fac)
+    	grid, alpha = coarseningFunction(grid, alpha, fac)
     	newGsize = grid.getSize()
     
     alpha = run(grid, alpha, fac, training)   

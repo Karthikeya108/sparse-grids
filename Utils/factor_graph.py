@@ -22,15 +22,22 @@ class factor_graph:
 		self.factors = {}
 
         def create_factor_graph(self, max_factors):
-		if self.dim < max_factors:
-			print "<max_factors> cannot be greater than number of nodes in the graph"
-			exit(0)
+		#if self.dim < max_factors:
+		#	print "<max_factors> cannot be greater than number of nodes in the graph"
+		#	exit(0)
 		for f in xrange(1,max_factors+1):
 			combination = itertools.combinations(self.nodes, f)
 			self.factors[f] = list(combination)
+		print self.factors
 
 	def coarsen_factor_graph(self, delete_list):
+		delete_list.sort(key = len, reverse=True)
 		for i in delete_list:
+			if len(i)+1 in self.factors:
+				if len(self.factors[len(i)+1]) > 0:
+					print "Cannot delete the following elements since the high order interactions are still present: ",delete_list
+					return
 			self.factors[len(i)].remove(tuple(sorted(i)))
+			delete_list.remove(i)
 		
 	
