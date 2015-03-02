@@ -9,11 +9,24 @@ from optparse import OptionParser
 from array import array
 from painlesscg import cg,sd,cg_new
 
-from skmonaco import mcquad
+from skmonaco import mcquad #TODO: Remove
 import numpy as np
 from MCMC_Model import *
 from Coarsen_Grid import *
 from factor_graph import *
+
+#Required for 'visualizeResult' method
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+#Required for 'compareExpVal' method
+from scipy.stats import norm
+from scipy.integrate import *
+
+from pylab import hist, show
+
+#Reuired for 'eval_function_modlin' method
+from itertools import izip
 #-------------------------------------------------------------------------------
 ## Outputs a deprecated warning for an option
 # @param option Parameter set by the OptionParser
@@ -97,7 +110,10 @@ def exec_mode(mode):
 # @param filename filename of the file
 # @return the data stored in the file as a set of arrays
 def openFile(filename):
-    return readData(filename)
+	if "arff" in filename:
+		return readData(filename)
+	else:
+		return readDataTrivial(filename)
 
 
 #-------------------------------------------------------------------------------
@@ -193,6 +209,7 @@ def getNumOfPoints(options, grid):
     else: numOfPoints = options.adapt_points
     return numOfPoints
 
+#Not used anymore: TODO - Remove
 def basisFunction(gpoint, gdim, val):
 	prod = 1
 	for d in range(gdim):
@@ -217,13 +234,14 @@ def calcq(grid, data):
 
 	return avgs
 
+#Computing the Expected Value (\varphi(x)) using MCMC
 def computeNLterm(grid, alpha, fac):
 	dim = fac.dim
 
     	model = pm.Model(input=make_model(grid, alpha, fac), name="sg_normal_indep")
 	db = pm.database.pickle.load('sg_mcmc.pickle')
-	print "x0 trace: ",len(db.trace('x0',chain=None)[:])
-	print "x1 trace: ",len(db.trace('x1',chain=None)[:])
+	#print "x0 trace: ",len(db.trace('x0',chain=None)[:])
+	#print "x1 trace: ",len(db.trace('x1',chain=None)[:])
     	mcmc = pm.MCMC(model, name="MCMC", db=db)
     	mcmc.sample(iter=10000, burn=100, thin=5)
 	mcmc.db.close()
@@ -238,15 +256,15 @@ def computeNLterm(grid, alpha, fac):
 	a = pysgpp.DataVector(data.shape[0])
 	a.setAll(1.0)
 	operationEvaluation.multTranspose(a, y)
-	print "Size of Last chain of MCMC samples: ",data.shape[0]
+	#print "Size of Last chain of MCMC samples: ",data.shape[0]
 
 	avgs = y.array()/data.shape[0]
-	print "Psi values: ",avgs
+	#print "Psi values: ",avgs
 
 	return avgs
 
 def updateFactorGraph(grid, alpha, fac):
-	alpha_threshold = 0.9
+	alpha_threshold = 0.1
 	
 	alpha_levels = {}
         max_len = 0
@@ -260,7 +278,7 @@ def updateFactorGraph(grid, alpha, fac):
                 alpha_levels[k] = tuple(sorted(levels))
                 if max_len < len(levels):
                         max_len = len(levels)
-                print "Levels, alpha: ",alpha_levels
+                #print "Levels, alpha: ",alpha_levels
 
         if fac.dim > max_len+1:
                 for k in xrange(fac.dim-1,max_len,-1):
@@ -275,8 +293,8 @@ def updateFactorGraph(grid, alpha, fac):
 
         delete_list = []
         for key, value in level_alphas.iteritems():
-		print "ALpha avg: ",  sum(value)/float(len(value)) 
-                if sum(value)/float(len(value)) < alpha_threshold:
+		#print "ALpha avg: ",  sum(np.absolute(value))/float(len(value)) 
+                if sum(np.absolute(value))/float(len(value)) < alpha_threshold:
                         delete_list[len(delete_list):] = [key]
 
         fac.coarsen_factor_graph(delete_list)
@@ -355,11 +373,70 @@ def conjugateGradient(b, alpha, imax, epsilon, A, reuse = False, verbose=True, m
 	
     return (i,delta_new)
 
+# functions for explicit computation of the modified linear functions
+def __phi(x):
+    """ Evaluates 1-D hat function at x """
+    return max([1 - abs(x), 0])
+    
+def eval_function_modlin(point, level_vector, index_vector):
+    """ Evaluate an individual function define by multilevel and multiindex at the given point """
+
+    product = 1
+    for (l, i, x) in izip(level_vector, index_vector, point):
+        if l == 1 and i == 1:
+            val = 1
+        elif l > 1 and i == 1:
+            if x >= 0 and x <= 2 ** (1 - l):
+                val = 2 - 2 ** l * x
+            else:
+                val = 0
+        elif l > 1 and i == 2 ** l - 1:
+            if x >= 1 - 2 ** (1 - l) and x <= 1:
+                val = 2 ** l * x + 1 - i
+            else:
+                val = 0
+        else:
+            val = __phi(x * 2 ** l - i)
+        product *= val
+        if product == 0:
+            break
+    return product
+
+#Custom code, not generic - Corresponds to data/toy2.txt
+def compareExpVal(grid, mcmc_expVal, dim):
+    storage = grid.getStorage()
+
+    mu = np.array([0.5]*dim)
+    sigma2 = 0.01**2
+    rv = norm(loc=mu[0], scale=np.sqrt(sigma2))
+
+    for i in xrange(grid.getSize()):
+    	grid_index = storage.get(i)
+    	level = np.empty(dim)
+    	index = np.empty(dim)
+    	for d in xrange(dim):
+        	level[d] = grid_index.getLevel(d)
+        	index[d] = grid_index.getIndex(d)
+    
+    	print "MCMC Expected Value"	
+	print level, index, mcmc_expVal[i]
+
+    	print "True Expected Value"
+    	myfunc = lambda x, level=level, index=index: eval_function_modlin(x, level, index)
+    	prod = 1.0
+    	for d in xrange(dim):
+    		myfunc = lambda x: eval_function_modlin([x], [level[d]], [index[d]])*rv.pdf(x)
+    		res = quad(myfunc, 0, 1, epsabs=1e-14, epsrel=1e-12)
+    		prod*= res[0]
+
+	print level, index, prod
+    
+
 #-------------------------------------------------------------------------------
 def run(grid, alpha, fac, training):
     errors = None
     gridSize = grid.getStorage().size()
-    print grid.getSize()
+    #print grid.getSize()
 
     #Parameters
     paramW = 0.01
@@ -371,7 +448,7 @@ def run(grid, alpha, fac, training):
     i = 1
 
     q = calcq(grid, training)
-    print "q value: ",q
+    #print "q value: ",q
     A = createOperationLaplace(grid)
 
     #This is just to initialize the pickle db to store the MCMC state
@@ -381,29 +458,34 @@ def run(grid, alpha, fac, training):
     mcmc.sample(iter=100, burn=10, thin=1)
     mcmc.db.close()
 
-    nlterm = computeNLterm(grid, alpha, fac)
-    print nlterm
+    mcmc_expVal = computeNLterm(grid, alpha, fac)
+    #print mcmc_expVal
+    if 'toy' in options.data[0]:
+    	compareExpVal(grid, mcmc_expVal, fac.dim)
+
+    alpha_mask = DataVector(grid.getSize())
+    alpha_mask.setAll(1.0)
 
     while residual > epsilon and i <= imax:
         
         desMat = createOperationMultipleEval(grid, training)
-	b = q - nlterm
+	b = q - mcmc_expVal
 	b = DataVector(b)
-	print "b value: ", b
+	#print "b value: ", b
 	lambdaVal = 1
 	b_lambda = DataVector(gridSize)
 	for k in range(gridSize):
 		b_lambda[k] = float(b[k] / lambdaVal)
 
 	b_lambda = DataVector(b_lambda)
-	print "b_lambda: ",b_lambda
+	#print "b_lambda: ",b_lambda
 
 	alpha_old = DataVector(alpha)
 	## Conjugated Gradient method for sparse grids, solving A.alpha=b
-	print alpha
+	#print alpha
         res = conjugateGradient(b_lambda, alpha, imax, options.r, A, False, options.verbose, max_threshold=options.max_r)
         #print "Conjugate Gradient output:"
-        print "cg residual: ",res
+        #print "cg residual: ",res
    	print "cg alpha: ",alpha
     	print "old alpha: ",alpha_old
 
@@ -416,12 +498,16 @@ def run(grid, alpha, fac, training):
    	
    	for k in range(grid.getStorage().size()):
     		alpha[k] = alpha_old[k] + val[k]
-	print "new alpha: ",alpha
+	#print "new alpha: ",alpha
    	A_alpha = DataVector(grid.getStorage().size())
    	
 	A.mult(alpha, A_alpha)
-    	nlterm = computeNLterm(grid, alpha, fac)
-   	q_val = q + nlterm
+    	mcmc_expVal = computeNLterm(grid, alpha, fac)
+    	
+    	if 'toy' in options.data[0]:
+    		compareExpVal(grid, mcmc_expVal, fac.dim)
+
+   	q_val = q + mcmc_expVal
 
    	value = DataVector(grid.getStorage().size())
    	for k in range(grid.getStorage().size()):
@@ -441,13 +527,55 @@ def run(grid, alpha, fac, training):
 
 	print "------------------------------factors---", fac.factors
 
-	grid, alpha = coarseningFunction(grid, alpha, fac) 
+	grid, alpha_mask = coarseningFunction(grid, alpha_mask, fac) 
 
     print "Alpha: ",alpha
-    print grid.getSize()
-    return alpha
+    #print grid.getSize()
+    return grid, alpha
 
 #-------------------------------------------------------------------------------
+
+def evaluateDensityFunction(grid, alpha, dim, data):
+
+    result = []
+    q = DataVector(dim)
+    for i in xrange(data.getNrows()):
+        data.getRow(i,q)
+	value = createOperationEval(grid).eval(alpha,q)
+        result.append(value)
+
+    result = np.exp(result)
+
+    print "Mean: ",np.mean(result)
+
+    return result
+
+def visualizeResult(training, result, dim):
+
+    #x_axis = np.arange(0, 500, 0.1)
+
+    #plt.plot(x_axis, result, 'r--', x_axis, kde_result, 'b-')
+    #plt.show()
+
+    hist(result)
+    show()
+
+    fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
+    x = DataVector(training.getNrows())
+    y = DataVector(training.getNrows()) 
+    
+    training.getColumn(0,x)
+    training.getColumn(1,y)
+
+    if dim == 2:
+    	ax.scatter(x, y, c=result)
+    elif dim == 3:
+    	z = DataVector(training.getNrows())
+    	training.getColumn(2,z)
+    	ax.scatter(x, y, z, c=result)
+    
+    plt.show()
+
 ## Density Estimation
 def doDensityEstimation():
     # read data
@@ -469,6 +597,7 @@ def doDensityEstimation():
     grid = Grid.createModLinearGrid(dim)
     generator = grid.createGridGenerator()
     generator.regular(level)
+    print "Columns: ",dim
     print "Grid size:", grid.getSize()
 
     gsize = grid.getSize()
@@ -485,7 +614,14 @@ def doDensityEstimation():
     	grid, alpha = coarseningFunction(grid, alpha, fac)
     	newGsize = grid.getSize()
     
-    alpha = run(grid, alpha, fac, training)   
+    grid, alpha = run(grid, alpha, fac, training)
+
+    result = evaluateDensityFunction(grid,alpha,dim,training)
+
+    print "Mean of the result: ",np.mean(result)
+   
+    if dim < 4:
+    	visualizeResult(training, result, dim)
  
     if options.outfile:
         writeAlphaARFF(options.outfile, alpha)
@@ -504,18 +640,22 @@ def doDensityEstimation():
 def buildYVector(data):
     return data["classes"]
 
-def testValues(grid,alpha,test,classes):
-    p = DataVector(test.getNcols())
+#TODO - Update
+def testValues(grid,alpha,result,classes):
     correct = 0
-    for i in xrange(test.getNrows()):
-        test.getRow(i,p)
-        val = createOperationEval(grid).eval(alpha,p)
+    for i in xrange(len(result)):
+	val = 1
+	if (result[i] >= 0.7):
+		val = 2
+	else:
+		val = 1
         if val == classes[i]:
             correct = correct + 1
 
-    print "Accuracy: ", float(correct)/test.getNrows()
+    print "Accuracy: ", float(correct)/len(result)
 
 ## Density Estimation with Test
+#TODO - Update
 def doDETest():
     # read data
     data = openFile(options.data[0])
