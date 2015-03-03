@@ -1,0 +1,26 @@
+1. Did you compute the density back into exp? What you are computing is of course log-density, so comparing to KDE you need to compute exp(\sum_i \alpha_i \phi_i(x)) - Done
+
+2. Put the color legend next to emages. The pictures don't tell much otherwise - TODO
+
+For gaussian: 
+
+how many points do you generate? 
+
+Toy Data Set: 5000
+
+how many MCMC iterations? 
+
+iter=10000
+burn=100
+thin=5
+
+How far is the emprirical expected value of the basis functions you are computing with MCMC from true expected value?
+
+-> Printed in the output log
+
+Is everyhing I need to repeat the test on Gitlab repository? How do I run the test? - I think so
+
+
+python sgdensity.py --mode density --data data/toy2.txt --level 3
+
+python sgdensity.py --mode density --data data/ripleyGarcke.train.arff.gz --level 3
