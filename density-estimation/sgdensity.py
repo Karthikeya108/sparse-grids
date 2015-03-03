@@ -259,7 +259,7 @@ def computeNLterm(grid, alpha, fac):
 	#print "Size of Last chain of MCMC samples: ",data.shape[0]
 
 	avgs = y.array()/data.shape[0]
-	#print "Psi values: ",avgs
+	print "Psi values: ",avgs
 
 	return avgs
 
@@ -275,11 +275,13 @@ def updateFactorGraph(grid, alpha, fac):
                         #Fetch the interacting factors
                         if grid_index.getLevel(d) != 1:
                                 levels = levels + (d,)
+		#Store the grid point index and corresponding tuple of interacting factors
                 alpha_levels[k] = tuple(sorted(levels))
                 if max_len < len(levels):
                         max_len = len(levels)
                 #print "Levels, alpha: ",alpha_levels
-
+	#Delete all the higher order interacting factors in the factor_graph which are higher 
+        #than the maximum length of the <interacting factors> obtained in the previuos step
         if fac.dim > max_len+1:
                 for k in xrange(fac.dim-1,max_len,-1):
                         fac.factors[k] = []
@@ -293,7 +295,12 @@ def updateFactorGraph(grid, alpha, fac):
 
         delete_list = []
         for key, value in level_alphas.iteritems():
-		#print "ALpha avg: ",  sum(np.absolute(value))/float(len(value)) 
+		#print "ALpha avg: ",  sum(np.absolute(value))/float(len(value))
+                
+		#if the average absolute values of the alphas (co-efficients) corresponding 
+                #to a <interacting factor> tuple is less than some <alpha_threshold> then 
+                #add the <interacting factor> tuple to the delete list
+
                 if sum(np.absolute(value))/float(len(value)) < alpha_threshold:
                         delete_list[len(delete_list):] = [key]
 
@@ -418,10 +425,8 @@ def compareExpVal(grid, mcmc_expVal, dim):
         	level[d] = grid_index.getLevel(d)
         	index[d] = grid_index.getIndex(d)
     
-    	print "MCMC Expected Value"	
-	print level, index, mcmc_expVal[i]
-
-    	print "True Expected Value"
+	print "MCMC_ExpVal",level, index, mcmc_expVal[i]
+	print "----------------------------------------------------------"
     	myfunc = lambda x, level=level, index=index: eval_function_modlin(x, level, index)
     	prod = 1.0
     	for d in xrange(dim):
@@ -429,7 +434,8 @@ def compareExpVal(grid, mcmc_expVal, dim):
     		res = quad(myfunc, 0, 1, epsabs=1e-14, epsrel=1e-12)
     		prod*= res[0]
 
-	print level, index, prod
+	print "Ture ExpVal",level, index, prod
+	print ".........................................................."
     
 
 #-------------------------------------------------------------------------------
@@ -546,8 +552,6 @@ def evaluateDensityFunction(grid, alpha, dim, data):
 
     result = np.exp(result)
 
-    print "Mean: ",np.mean(result)
-
     return result
 
 def visualizeResult(training, result, dim):
@@ -585,10 +589,10 @@ def doDensityEstimation():
 
     level = options.level
 
-    if options.verbose:
-        print "Dimension is:", dim
-        print "Size of datasets is:", numData
-        print "Gridsize is:", grid.getSize()
+    #if options.verbose:
+    print "Dimension is:", dim
+    print "Size of datasets is:", numData
+    print "Level is: ", options.level
 
     training = buildTrainingVector(data)
 
@@ -597,11 +601,11 @@ def doDensityEstimation():
     grid = Grid.createModLinearGrid(dim)
     generator = grid.createGridGenerator()
     generator.regular(level)
-    print "Columns: ",dim
-    print "Grid size:", grid.getSize()
 
     gsize = grid.getSize()
     newGsize = 0
+
+    print "Gridsize is:", gsize
 
     alpha = DataVector(grid.getSize())
     alpha.setAll(1.0)

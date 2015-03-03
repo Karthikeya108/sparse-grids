@@ -1,0 +1,1 @@
+python sgdensity.py --mode density --data <path_to_data_file> --level <required_level>
