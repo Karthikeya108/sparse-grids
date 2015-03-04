@@ -9,7 +9,6 @@ from optparse import OptionParser
 from array import array
 from painlesscg import cg,sd,cg_new
 
-from skmonaco import mcquad #TODO: Remove
 import numpy as np
 from MCMC_Model import *
 from Coarsen_Grid import *
@@ -356,6 +355,7 @@ def conjugateGradient(b, alpha, imax, epsilon, A, reuse = False, verbose=True, m
         if i % 50 == 0:
         # r = b - A*x
 	    A.mult(alpha, temp)
+   	    #TODO: temp can be multiplied by lambda instead of dividing lambda
             r.copyFrom(b)
 	    r.sub(temp)
         else:
@@ -409,6 +409,29 @@ def eval_function_modlin(point, level_vector, index_vector):
             break
     return product
 
+def computeTrueCoeffs(grid, dim):
+   mu = np.array([0.5]*dim)
+   sigma2 = 0.01**2
+   SigmaInv = np.eye(dim)/sigma2 # variables are independent in this example
+   Sigma = np.eye(dim) * sigma2
+
+   #Computing alpha by doing interpolation and hierarchisation
+   func = lambda x: -0.5*(x-mu).dot(SigmaInv).dot(x-mu) # computes the exponent of the pdf
+   storage = grid.getStorage()
+   pointDV = pysgpp.DataVector(dim)
+   alpha = pysgpp.DataVector(grid.getSize())
+   for j in xrange(grid.getSize()):
+    	grid_index = storage.get(j)
+    	grid_index.getCoords(pointDV)
+    	x = pointDV.array()
+	print "Debug x: ", x
+    	alpha[j] = func(x)
+	print "Debug alpha[j]: ", alpha[j]
+   opHierarchisation = pysgpp.createOperationHierarchisation(grid)
+   opHierarchisation.doHierarchisation(alpha)
+   
+   return alpha
+
 #Custom code, not generic - Corresponds to data/toy2.txt
 def compareExpVal(grid, mcmc_expVal, dim):
     storage = grid.getStorage()
@@ -421,18 +444,18 @@ def compareExpVal(grid, mcmc_expVal, dim):
     	grid_index = storage.get(i)
     	level = np.empty(dim)
     	index = np.empty(dim)
+
+	prod = 1.0
     	for d in xrange(dim):
         	level[d] = grid_index.getLevel(d)
         	index[d] = grid_index.getIndex(d)
     
-	print "MCMC_ExpVal",level, index, mcmc_expVal[i]
-	print "----------------------------------------------------------"
-    	myfunc = lambda x, level=level, index=index: eval_function_modlin(x, level, index)
-    	prod = 1.0
-    	for d in xrange(dim):
     		myfunc = lambda x: eval_function_modlin([x], [level[d]], [index[d]])*rv.pdf(x)
     		res = quad(myfunc, 0, 1, epsabs=1e-14, epsrel=1e-12)
     		prod*= res[0]
+
+	print "MCMC_ExpVal",level, index, mcmc_expVal[i]
+        print "----------------------------------------------------------"
 
 	print "Ture ExpVal",level, index, prod
 	print ".........................................................."
@@ -446,7 +469,7 @@ def run(grid, alpha, fac, training):
 
     #Parameters
     paramW = 0.01
-    epsilon = 0.1
+    epsilon = 0.5
     imax = gridSize
     u_0 = 0
     
@@ -456,15 +479,24 @@ def run(grid, alpha, fac, training):
     q = calcq(grid, training)
     #print "q value: ",q
     A = createOperationLaplace(grid)
-
+    print "debug ", alpha
+    alpha_true = computeTrueCoeffs(grid, fac.dim)
+    print "True ALpha: ",alpha_true
     #This is just to initialize the pickle db to store the MCMC state
-    model = pm.Model(input=make_model(grid, alpha, fac), name="sg_normal_indep")
+    if 'toy' not in options.data[0]:
+    	model = pm.Model(input=make_model(grid, alpha, fac), name="sg_normal_indep")
+    else:
+    	model = pm.Model(input=make_model(grid, alpha_true, fac), name="sg_normal_indep")
+
     mcmc = pm.MCMC(model, name="MCMC", db="pickle", dbname="sg_mcmc.pickle")
     mcmc.db
-    mcmc.sample(iter=100, burn=10, thin=1)
+    mcmc.sample(iter=10, burn=1, thin=1)
     mcmc.db.close()
-
-    mcmc_expVal = computeNLterm(grid, alpha, fac)
+    
+    if 'toy' not in options.data[0]:   
+    	mcmc_expVal = computeNLterm(grid, alpha, fac)
+    else:
+	mcmc_expVal = computeNLterm(grid, alpha_true, fac)
     #print mcmc_expVal
     if 'toy' in options.data[0]:
     	compareExpVal(grid, mcmc_expVal, fac.dim)
@@ -508,8 +540,12 @@ def run(grid, alpha, fac, training):
    	A_alpha = DataVector(grid.getStorage().size())
    	
 	A.mult(alpha, A_alpha)
-    	mcmc_expVal = computeNLterm(grid, alpha, fac)
-    	
+	if 'toy' not in options.data[0]:
+        	mcmc_expVal = computeNLterm(grid, alpha, fac)
+    	else:
+        	mcmc_expVal = computeNLterm(grid, alpha_true, fac)
+    
+	
     	if 'toy' in options.data[0]:
     		compareExpVal(grid, mcmc_expVal, fac.dim)
 
@@ -529,14 +565,13 @@ def run(grid, alpha, fac, training):
     	print "*****************Residual***************  ", residual
     	print "+++++++++++++++++i+++++++++++++++++++++   ",i-1
 
-    	fac = updateFactorGraph(grid, alpha, fac)
+    	#fac = updateFactorGraph(grid, alpha, fac)
 
 	print "------------------------------factors---", fac.factors
 
-	grid, alpha_mask = coarseningFunction(grid, alpha_mask, fac) 
+	#grid, alpha_mask = coarseningFunction(grid, alpha_mask, fac) 
 
     print "Alpha: ",alpha
-    #print grid.getSize()
     return grid, alpha
 
 #-------------------------------------------------------------------------------
