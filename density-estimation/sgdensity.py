@@ -411,7 +411,7 @@ def eval_function_modlin(point, level_vector, index_vector):
 
 def computeTrueCoeffs(grid, dim):
    mu = np.array([0.5]*dim)
-   sigma2 = 0.01**2
+   sigma2 = 0.1**2
    SigmaInv = np.eye(dim)/sigma2 # variables are independent in this example
    Sigma = np.eye(dim) * sigma2
 
@@ -437,7 +437,7 @@ def compareExpVal(grid, mcmc_expVal, dim):
     storage = grid.getStorage()
 
     mu = np.array([0.5]*dim)
-    sigma2 = 0.01**2
+    sigma2 = 0.1**2
     rv = norm(loc=mu[0], scale=np.sqrt(sigma2))
 
     for i in xrange(grid.getSize()):
