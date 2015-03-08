@@ -1,4 +1,4 @@
-import sys, os
+import sys
 sys.path.append('/home/karthikeya/svn/repo/lib/pysgpp')
 from matplotlib.pylab import *
 from tools import *
@@ -26,6 +26,8 @@ from pylab import hist, show
 
 #Reuired for 'eval_function_modlin' method
 from itertools import izip
+
+import scipy.sparse.linalg as la
 #-------------------------------------------------------------------------------
 ## Outputs a deprecated warning for an option
 # @param option Parameter set by the OptionParser
@@ -220,12 +222,12 @@ def basisFunction(gpoint, gdim, val):
         return prod
 
 def calcq(grid, data):
-	X = pysgpp.DataMatrix(data)
+	X = DataMatrix(data)
     
 	# evaluate grids and exponents
-	operationEvaluation = pysgpp.createOperationMultipleEval(grid, X)
-	y = pysgpp.DataVector(grid.getSize())
-	a = pysgpp.DataVector(data.getNrows())
+	operationEvaluation = createOperationMultipleEval(grid, X)
+	y = DataVector(grid.getSize())
+	a = DataVector(data.getNrows())
 	a.setAll(1.0)
 	operationEvaluation.multTranspose(a, y)
 	
@@ -242,7 +244,7 @@ def computeNLterm(grid, alpha, fac):
 	#print "x0 trace: ",len(db.trace('x0',chain=None)[:])
 	#print "x1 trace: ",len(db.trace('x1',chain=None)[:])
     	mcmc = pm.MCMC(model, name="MCMC", db=db)
-    	mcmc.sample(iter=10000, burn=100, thin=5)
+    	mcmc.sample(iter=10000, burn=10, thin=2)
 	mcmc.db.close()
 
 	#Picks up the samples from the last chain
@@ -465,39 +467,37 @@ def compareExpVal(grid, mcmc_expVal, dim):
 def run(grid, alpha, fac, training):
     errors = None
     gridSize = grid.getStorage().size()
-    #print grid.getSize()
 
     #Parameters
     paramW = 0.01
     epsilon = 0.5
     imax = gridSize
-    u_0 = 0
-    
     residual = 1
     i = 1
 
     q = calcq(grid, training)
-    #print "q value: ",q
-    A = createOperationLaplace(grid)
-    print "debug ", alpha
+    print "q value: ",q
+    #A = createOperationLaplace(grid)
+    A = np.eye(gridSize)
+    
     alpha_true = computeTrueCoeffs(grid, fac.dim)
     print "True ALpha: ",alpha_true
     #This is just to initialize the pickle db to store the MCMC state
-    if 'toy' not in options.data[0]:
-    	model = pm.Model(input=make_model(grid, alpha, fac), name="sg_normal_indep")
-    else:
-    	model = pm.Model(input=make_model(grid, alpha_true, fac), name="sg_normal_indep")
+    #if 'toy' not in options.data[0]:
+    model = pm.Model(input=make_model(grid, alpha, fac), name="sg_normal_indep")
+    #else:
+    #	model = pm.Model(input=make_model(grid, alpha_true, fac), name="sg_normal_indep")
 
     mcmc = pm.MCMC(model, name="MCMC", db="pickle", dbname="sg_mcmc.pickle")
     mcmc.db
     mcmc.sample(iter=10, burn=1, thin=1)
     mcmc.db.close()
     
-    if 'toy' not in options.data[0]:   
-    	mcmc_expVal = computeNLterm(grid, alpha, fac)
-    else:
-	mcmc_expVal = computeNLterm(grid, alpha_true, fac)
-    #print mcmc_expVal
+    #if 'toy' not in options.data[0]:   
+    mcmc_expVal = computeNLterm(grid, alpha, fac)
+    #else:
+    #mcmc_expVal = computeNLterm(grid, alpha_true, fac)
+    print mcmc_expVal
     if 'toy' in options.data[0]:
     	compareExpVal(grid, mcmc_expVal, fac.dim)
 
@@ -505,58 +505,60 @@ def run(grid, alpha, fac, training):
     alpha_mask.setAll(1.0)
 
     while residual > epsilon and i <= imax:
-        
-        desMat = createOperationMultipleEval(grid, training)
-	b = q - mcmc_expVal
-	b = DataVector(b)
-	#print "b value: ", b
-	lambdaVal = 1
-	b_lambda = DataVector(gridSize)
-	for k in range(gridSize):
-		b_lambda[k] = float(b[k] / lambdaVal)
 
-	b_lambda = DataVector(b_lambda)
-	#print "b_lambda: ",b_lambda
+	b = q - mcmc_expVal
+	lambdaVal = 0.2
+
+	print "lambda value: ", lambdaVal
+
+        A = A * lambdaVal
+	print A
 
 	alpha_old = DataVector(alpha)
 	## Conjugated Gradient method for sparse grids, solving A.alpha=b
-	#print alpha
-        res = conjugateGradient(b_lambda, alpha, imax, options.r, A, False, options.verbose, max_threshold=options.max_r)
+   	
+        #res = conjugateGradient(b_lambda, alpha, imax, options.r, A, False, options.verbose, max_threshold=options.max_r)
+    	alpha, info = la.cg(A, b, alpha)
         #print "Conjugate Gradient output:"
         #print "cg residual: ",res
-   	print "cg alpha: ",alpha
+    	print "CG Info: ",info
     	print "old alpha: ",alpha_old
 
-	if i == 1:
-		paramW = 1	
+	if i > 1:
+		val = alpha
+    		val = val * paramW
+
+    		alpha = alpha_old + val
 	
-   	val = DataVector(alpha)
-   	for k in range(grid.getStorage().size()):
-   		val[k] = val[k] * paramW
+	print "new alpha: ",alpha
+
+	#Test
+	#alpha = b_lambda
    	
-   	for k in range(grid.getStorage().size()):
-    		alpha[k] = alpha_old[k] + val[k]
-	#print "new alpha: ",alpha
-   	A_alpha = DataVector(grid.getStorage().size())
+        A_alpha = DataVector(gridSize)
    	
-	A.mult(alpha, A_alpha)
-	if 'toy' not in options.data[0]:
-        	mcmc_expVal = computeNLterm(grid, alpha, fac)
-    	else:
-        	mcmc_expVal = computeNLterm(grid, alpha_true, fac)
-    
-	
+	#A.mult(alpha, A_alpha)
+        A = la.aslinearoperator(A)
+	A_alpha = A.matvec(alpha)
+
+   	alpha = DataVector(alpha)
+
+	#if 'toy' not in options.data[0]:
+        mcmc_expVal = computeNLterm(grid, alpha, fac)
+    	#else:
+       # 	mcmc_expVal = computeNLterm(grid, alpha_true, fac)
+    	
     	if 'toy' in options.data[0]:
     		compareExpVal(grid, mcmc_expVal, fac.dim)
+	   	
+	q_val = mcmc_expVal - q
 
-   	q_val = q + mcmc_expVal
-
-   	value = DataVector(grid.getStorage().size())
-   	for k in range(grid.getStorage().size()):
-   		value[k] = A_alpha[k] - q_val[k]
+   	value = DataVector(gridSize)
    	
+	value = A_alpha + q_val
+
     	summ = 0
-	for k in range(grid.getStorage().size()):
+	for k in range(gridSize):
 		summ = summ + value[k]*value[k]
 
     	residual = np.sqrt(summ)
@@ -565,14 +567,15 @@ def run(grid, alpha, fac, training):
     	print "*****************Residual***************  ", residual
     	print "+++++++++++++++++i+++++++++++++++++++++   ",i-1
 
-    	#fac = updateFactorGraph(grid, alpha, fac)
+    	fac = updateFactorGraph(grid, alpha, fac)
 
 	print "------------------------------factors---", fac.factors
 
-	#grid, alpha_mask = coarseningFunction(grid, alpha_mask, fac) 
+	grid, alpha_mask = coarseningFunction(grid, alpha_mask, fac) 
 
+    print "True Alpha: ", alpha_true
     print "Alpha: ",alpha
-    return grid, alpha
+    return grid, DataVector(alpha)
 
 #-------------------------------------------------------------------------------
 
@@ -647,6 +650,10 @@ def doDensityEstimation():
 
     fac = factor_graph(int(dim))
     fac.create_factor_graph(int(level))
+
+    #Code to remove all the interactions among the factors in the factor graph
+    #for k in xrange(2,level+1):
+    #	fac.factors[k] = []    
 
     while gsize != newGsize:
     	gsize = newGsize
