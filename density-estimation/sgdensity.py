@@ -477,8 +477,34 @@ def run(grid, alpha, fac, training):
 
     q = calcq(grid, training)
     print "q value: ",q
-    #A = createOperationLaplace(grid)
-    A = np.eye(gridSize)
+
+    #Create OperationMatrix Object
+    #opL = createOperationLaplace(grid)
+    opL = createOperationIdentity(grid)
+
+    #Multiply the OperationMatrix with \lambda value
+    lambdaVal = DataVector(gridSize)
+    lambdaVal.setAll(0.15)
+    res = DataVector(gridSize)
+    opL.mult(lambdaVal, res)
+    class Diagop(object):
+    	def __init__(self, d):
+            self.d = d
+        def mult(self, a, res):
+            res.copyFrom(a)
+            res.componentwise_mult(self.d)
+    A = Diagop(res)
+    
+    #Form the LinearOperator
+    def matvec_mult(v):
+    	result = DataVector(gridSize)
+    	A.mult(DataVector(v), result)
+    	return result.array()
+    A_lambda = la.LinearOperator((gridSize, gridSize), matvec=matvec_mult, dtype='float64')
+    
+    print A_lambda
+
+    #A = np.eye(gridSize)
     
     alpha_true = computeTrueCoeffs(grid, fac.dim)
     print "True ALpha: ",alpha_true
@@ -507,18 +533,18 @@ def run(grid, alpha, fac, training):
     while residual > epsilon and i <= imax:
 
 	b = q - mcmc_expVal
-	lambdaVal = 0.2
+	#lambdaVal = 0.2
 
-	print "lambda value: ", lambdaVal
+	#print "lambda value: ", lambdaVal
 
-        A = A * lambdaVal
-	print A
+        #A_lambda = A * lambdaVal
+	#print A_lambda
 
 	alpha_old = DataVector(alpha)
 	## Conjugated Gradient method for sparse grids, solving A.alpha=b
    	
-        #res = conjugateGradient(b_lambda, alpha, imax, options.r, A, False, options.verbose, max_threshold=options.max_r)
-    	alpha, info = la.cg(A, b, alpha)
+        #res = conjugateGradient(DataVector(b), alpha, imax, options.r, A_lambda, False, options.verbose, max_threshold=options.max_r)
+    	alpha, info = la.cg(A_lambda, b, alpha)
         #print "Conjugate Gradient output:"
         #print "cg residual: ",res
     	print "CG Info: ",info
@@ -527,7 +553,6 @@ def run(grid, alpha, fac, training):
 	if i > 1:
 		val = alpha
     		val = val * paramW
-
     		alpha = alpha_old + val
 	
 	print "new alpha: ",alpha
@@ -537,10 +562,9 @@ def run(grid, alpha, fac, training):
    	
         A_alpha = DataVector(gridSize)
    	
-	#A.mult(alpha, A_alpha)
-        A = la.aslinearoperator(A)
-	A_alpha = A.matvec(alpha)
-
+        A_lambda = la.aslinearoperator(A_lambda)
+	A_alpha = A_lambda.matvec(alpha)
+	
    	alpha = DataVector(alpha)
 
 	#if 'toy' not in options.data[0]:
@@ -575,6 +599,7 @@ def run(grid, alpha, fac, training):
 
     print "True Alpha: ", alpha_true
     print "Alpha: ",alpha
+	
     return grid, DataVector(alpha)
 
 #-------------------------------------------------------------------------------
@@ -589,6 +614,8 @@ def evaluateDensityFunction(grid, alpha, dim, data):
         result.append(value)
 
     result = np.exp(result)
+    #Test - Scaling
+    #result = result * 4
 
     return result
 
@@ -599,10 +626,9 @@ def visualizeResult(training, result, dim):
     #plt.plot(x_axis, result, 'r--', x_axis, kde_result, 'b-')
     #plt.show()
 
-    hist(result)
-    show()
+    #hist(result)
+    #show()
 
-    fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
     x = DataVector(training.getNrows())
     y = DataVector(training.getNrows()) 
     
@@ -610,11 +636,20 @@ def visualizeResult(training, result, dim):
     training.getColumn(1,y)
 
     if dim == 2:
-    	ax.scatter(x, y, c=result)
+	fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
+    	p = ax.scatter(x, y, c=result)
+	fig.colorbar(p)
     elif dim == 3:
+	fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
     	z = DataVector(training.getNrows())
     	training.getColumn(2,z)
-    	ax.scatter(x, y, z, c=result)
+    	p = ax.scatter(x, y, z, c=result)
+	fig.colorbar(p)
+    elif dim == 1:
+        pdf_true = norm(0.5, 0.1).pdf(x)
+        fig, ax = plt.subplots()
+        ax.plot(x, result, color='blue', alpha=0.5, lw=3)
+        ax.fill(x, pdf_true, ec='gray', fc='gray', alpha=0.4)
     
     plt.show()
 
@@ -662,7 +697,7 @@ def doDensityEstimation():
     
     grid, alpha = run(grid, alpha, fac, training)
 
-    result = evaluateDensityFunction(grid,alpha,dim,training)
+    result = evaluateDensityFunction(grid, alpha, dim, training)
 
     print "Mean of the result: ",np.mean(result)
    
