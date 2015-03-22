@@ -8,7 +8,7 @@ from array import array
 
 import numpy as np
 from MCMC_Model import *
-from Sampling_Module import *
+import Sampling_Module as sm
 from Coarsen_Grid import *
 from Factor_Graph import *
 
@@ -43,7 +43,7 @@ class SG_DensityEstimator:
         
         """Initialize the Sampling Module"""
         self.model = pm.Model(input=make_model(self.grid, self.alpha, self.fac), name="sg_normal_indep")
-        self.model = initialize_mcmc(self.model)
+        self.model = sm.initialize_mcmc(self.model)
 
     def __repr__(self):
         return ""+self
@@ -68,7 +68,7 @@ class SG_DensityEstimator:
 
         return avgs
 
-    def compute_nl_term(self):
+    def compute_nl_term(self, sampling_size):
         """
         Computing the Expected Value (\varphi(\alpha^i)) using MCMC
         arguments -- 
@@ -77,13 +77,13 @@ class SG_DensityEstimator:
         dim = self.fac.dim
 
         self.model = pm.Model(input=make_model(self.grid, self.alpha, self.fac), name="sg_normal_indep")
-        self.model = sample_mcmc(self.model)
+        self.model = sm.sample_mcmc(self.model, sampling_size)
         
         """Picks up the samples from the last chain"""
         data = vstack([self.model.x[i].trace()[:] for i in xrange(dim)]).T
         X = pysgpp.DataMatrix(data)
         
-        """Evaluate grids and exponents"""
+        """Evaluate grid"""
         operationEvaluation = pysgpp.createOperationMultipleEval(self.grid, X)
         y = pysgpp.DataVector(self.grid.getSize())
         a = pysgpp.DataVector(data.shape[0])
@@ -92,7 +92,7 @@ class SG_DensityEstimator:
         #print "Size of Last chain of MCMC samples: ",data.shape[0]
 
         avgs = y.array()/data.shape[0]
-        print "Psi values: ",avgs
+        #print "Psi values: ",avgs
 
         return avgs
         
@@ -145,7 +145,7 @@ class SG_DensityEstimator:
         
         self.fac.coarsen_factor_graph(delete_list)
 
-    def update_grid(self, alpha_mask):
+    def update_grid(self):
         """
         coarsens the grid
         arguments -- alpha_mask
@@ -155,10 +155,28 @@ class SG_DensityEstimator:
         newgsize = 0
         while gsize != newgsize:
             gsize = newgsize
-            self.grid, alpha_mask = coarsening_function(self.grid, alpha_mask, self.fac)
+            self.grid, self.alpha = coarsening_function(self.grid, self.alpha, self.fac)
             newgsize = self.grid.getSize()
-            
-        return alpha_mask
+
+    def compute_regfactor(self):
+
+        lambda_val = self.regparam
+        grid_size = self.grid.getSize()
+        """Regularization factor"""
+        opL = createOperationLaplace(self.grid)
+        #opL = createOperationIdentity(self.grid)
+
+        def matvec_mult(v, opL, lambda_val):
+            result = DataVector(grid_size)
+            opL.mult(DataVector(v), result)
+            result.mult(lambda_val)
+            return result.array()
+
+        matvec = lambda x: matvec_mult(x, opL, lambda_val)
+
+        A = la.LinearOperator((grid_size, grid_size), matvec=matvec, dtype='float64')
+
+        return A
         
     def compute_coefficients(self):
         """
@@ -172,27 +190,14 @@ class SG_DensityEstimator:
         epsilon = 0.5
         imax = grid_size
         residual = 1
-        lambda_val = self.regparam
         i = 1
 
         prior_info = self.calculate_prior_info(self.data["data"])
-        print "priorInfo value: ", prior_info
+        #print "priorInfo value: ", prior_info
 
-        """Regularization factor"""
-        #opL = createOperationLaplace(self.grid)
-        opL = createOperationIdentity(self.grid)
-
-        def matvec_mult(v, opL, lambda_val):
-            result = DataVector(grid_size)
-            opL.mult(DataVector(v), result)
-            result.mult(lambda_val)
-            return result.array()
+        A = self.compute_regfactor()
         
-        matvec = lambda x: matvec_mult(x, opL, lambda_val)
-
-        A = la.LinearOperator((grid_size, grid_size), matvec=matvec, dtype='float64')
-        
-        mcmc_expVal = self.compute_nl_term()
+        mcmc_expVal = self.compute_nl_term(500)
 
         alpha_mask = DataVector(self.grid.getSize())
         alpha_mask.setAll(1.0)
@@ -200,14 +205,16 @@ class SG_DensityEstimator:
         while residual > epsilon and i <= imax:
 
             b = prior_info - mcmc_expVal
+  
+            #print "b: ",b
 
             alpha_old = DataVector(self.alpha)
             """Conjugated Gradient method for sparse grids, solving A.alpha=b"""
-            self.alpha, info = la.cg(A, b, self.alpha)
+            self.alpha, info = la.cg(A, b, self.alpha);
             #print("Conjugate Gradient output:")
             #print("cg residual: ",res)
             print "CG Info: ",info
-            print "old alpha: ",alpha_old
+            #print "old alpha: ",alpha_old
 
             """ \alpha^{i+1} = \alpha^{i} + \omega \tilde{\alpha} """
             if i > 1:
@@ -215,7 +222,7 @@ class SG_DensityEstimator:
                 val = val * learning_rate
                 self.alpha = alpha_old + val
             
-            print "new alpha: ",self.alpha
+            #print "new alpha: ",self.alpha
 
             A_alpha = DataVector(grid_size)
             A = la.aslinearoperator(A)
@@ -223,7 +230,10 @@ class SG_DensityEstimator:
             
             """residual = $\|\emph{A} \alpha^{i+1} - q + \Phi(\alpha^{i+1}) \|$ """
             self.alpha = DataVector(self.alpha)
-            mcmc_expVal = self.compute_nl_term()
+            if i == 1:
+                mcmc_expVal = self.compute_nl_term(1000)
+            else:
+                mcmc_expVal = self.compute_nl_term(100)
                 
             q_val = mcmc_expVal - prior_info
             value = DataVector(grid_size)
@@ -234,11 +244,27 @@ class SG_DensityEstimator:
             print "*****************Residual***************  ", residual
             print "+++++++++++++++++i+++++++++++++++++++++   ",i-1
 
+            curr_grid_size = grid_size
             self.update_factor_graph()
+            self.update_grid()
+
+            if curr_grid_size != self.grid.getSize():
+                print "updating alpha"
+                grid_size = self.grid.getSize()
+                print self.alpha
+                index_list = np.nonzero(self.alpha)
+                cnt = 0
+                new_alpha = [len(index_list)]
+                for i in index_list[0]:
+                    print i
+                    new_alpha[cnt] = self.alpha[int(i)]
+                    cnt = cnt + 1
+                print new_alpha
+        
+                self.alpha = DataVector(new_alpha)
 
             print "------------------------------factors---", self.fac.factors
 
-            alpha_mask = self.update_grid(alpha_mask)
 
         print "Alpha: ",self.alpha
         
@@ -249,13 +275,19 @@ class SG_DensityEstimator:
         arguments -- dim
         returns -- f(x) = \exp{(\sum_{i=1}^{n} \alpha_i \varphi_i(x))} -- A list of values corresponding to each data points
         """
-        result = []
+        #result = []
+        '''
         q = DataVector(dim)
         for i in xrange(inputData.getNrows()):
             inputData.getRow(i,q)
             value = createOperationEval(self.grid).eval(self.alpha,q)
             result.append(value)
-
+ 
         result = np.exp(result)
-     
-        return result
+        '''
+        operationEvaluation = createOperationMultipleEval(self.grid, inputData)
+        y = DataVector(inputData.getNrows())
+        operationEvaluation.mult(self.alpha, y)
+        e = np.exp(y.array())
+        
+        return e
