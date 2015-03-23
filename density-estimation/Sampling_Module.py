@@ -9,12 +9,12 @@ def initialize_mcmc(model):
 	
 	return model
 	
-def sample_mcmc(model):
+def sample_mcmc(model, sampling_size):
 	db = pm.database.pickle.load('sg_mcmc.pickle')
 	#print "x0 trace: ",len(db.trace('x0',chain=None)[:])
 	#print "x1 trace: ",len(db.trace('x1',chain=None)[:])
 	mcmc = pm.MCMC(model, name="MCMC", db=db)
-	mcmc.sample(iter=10000, burn=10, thin=2)
+	mcmc.sample(iter=sampling_size, burn=10, thin=2)
 	mcmc.db.close()
 	
 	return model

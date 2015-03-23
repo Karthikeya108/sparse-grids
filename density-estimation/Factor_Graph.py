@@ -48,7 +48,8 @@ class Factor_Graph:
                                 print("Following element ignored from the delete_list: ")
                                 print(d)
                                 d = tuple()
-                if len(d) > 0:
+                #Individual factors should not be deleted
+                if len(d) > 1:
                     print(d)
                     print "Deleting factors: ",d
                     self.factors[len(d)].remove(tuple(sorted(d)))

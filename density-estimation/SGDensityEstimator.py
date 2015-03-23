@@ -9,13 +9,13 @@ from array import array
 import numpy as np
 from MCMC_Model import *
 import Sampling_Module as sm
-from Coarsen_Grid import *
+import Coarsen_Grid as cgrid
 from Factor_Graph import *
 
 import scipy.sparse.linalg as la
 
 class SG_DensityEstimator:
-    def __init__(self, data, gridLevel, regparam, alpha_threshold):
+    def __init__(self, data, gridLevel, regparam, regstr, *args):
         """
         Constructor
         arguments -- Input Data, Grid Level, Regularization Parameter (lambda), Alpha Threshold for Coarsening the Factor Graph
@@ -24,7 +24,10 @@ class SG_DensityEstimator:
         self.data = data
         self.gridLevel = gridLevel
         self.regparam = regparam
-        self.alpha_threshold = alpha_threshold
+        self.regstr = regstr
+
+        if len(args) > 0:
+            self.alpha_threshold = args[0]
         
         self.dim = data["data"].getNcols()
         
@@ -57,7 +60,6 @@ class SG_DensityEstimator:
         """
         X = DataMatrix(data)
     
-        # evaluate grids and exponents
         operationEvaluation = createOperationMultipleEval(self.grid, X)
         y = DataVector(self.grid.getSize())
         a = DataVector(data.getNrows())
@@ -96,75 +98,18 @@ class SG_DensityEstimator:
 
         return avgs
         
-    def update_factor_graph(self):
-        """
-        Removes the less important factors from the factor graph
-        arguments -- 
-        returns -- 
-        """
-        alpha_levels = {}
-        max_len = 0
-        for k in xrange(self.grid.getSize()):
-            grid_index = self.grid.getStorage().get(k)
-            levels = tuple()
-            for d in xrange(self.fac.dim):
-                """Fetch the interacting factors"""
-                if grid_index.getLevel(d) != 1:
-                    levels = levels + (d,)
-            """Store the grid point index and corresponding tuple of interacting factors"""
-            alpha_levels[k] = tuple(sorted(levels))
-            if max_len < len(levels):
-                max_len = len(levels)
-            #print "Levels, alpha: ",alpha_levels
-        """
-        Delete all the higher order interacting factors in the factor_graph which are higher 
-        than the maximum length of the <interacting factors> obtained in the previuos step
-        """
-        if self.fac.dim > max_len+1:
-            for k in xrange(self.fac.dim-1,max_len,-1):
-                self.fac.factors[k] = []
-
-        level_alphas = {}
-        for key, value in alpha_levels.iteritems():
-            if value not in level_alphas:
-                level_alphas[value] = [self.alpha[key]]
-            else:
-                level_alphas[value][len(level_alphas[value]):] = [self.alpha[key]]
-
-        delete_list = []
-        for key, value in level_alphas.iteritems():
-            #print "ALpha avg: ",  sum(np.absolute(value))/float(len(value))
-                    
-            """
-            if the average absolute values of the alphas (co-efficients) corresponding 
-            to a <interacting factor> tuple is less than some <alpha_threshold> then 
-            add the <interacting factor> tuple to the delete list
-            """
-            if sum(np.absolute(value))/float(len(value)) < self.alpha_threshold:
-                delete_list[len(delete_list):] = [key]
-        
-        self.fac.coarsen_factor_graph(delete_list)
-
-    def update_grid(self):
-        """
-        coarsens the grid
-        arguments -- alpha_mask
-        returns -- updated alpha_mask
-        """
-        gsize = self.grid.getSize()
-        newgsize = 0
-        while gsize != newgsize:
-            gsize = newgsize
-            self.grid, self.alpha = coarsening_function(self.grid, self.alpha, self.fac)
-            newgsize = self.grid.getSize()
-
     def compute_regfactor(self):
-
+        """
+        arguments -- 
+        returns -- regularization factor
+        """
         lambda_val = self.regparam
         grid_size = self.grid.getSize()
         """Regularization factor"""
-        opL = createOperationLaplace(self.grid)
-        #opL = createOperationIdentity(self.grid)
+        if self.regstr == 'laplace':
+            opL = createOperationLaplace(self.grid)
+        elif self.regstr == 'identity':
+            opL = createOperationIdentity(self.grid)
 
         def matvec_mult(v, opL, lambda_val):
             result = DataVector(grid_size)
@@ -177,6 +122,24 @@ class SG_DensityEstimator:
         A = la.LinearOperator((grid_size, grid_size), matvec=matvec, dtype='float64')
 
         return A
+
+    def update_coefficients(self):
+        """
+        arguments -- 
+        returns -- 
+        """
+        print "updating alpha"
+        print self.alpha
+        nonzero_index_array = np.nonzero(self.alpha)
+        nonzero_index_list = nonzero_index_array[0]
+        cnt = 0
+        new_alpha = [None]*len(nonzero_index_list)
+        for i in nonzero_index_list:
+            new_alpha[cnt] = self.alpha[int(i)]
+            cnt = cnt + 1
+        print new_alpha
+
+        self.alpha = DataVector(new_alpha)
         
     def compute_coefficients(self):
         """
@@ -245,46 +208,25 @@ class SG_DensityEstimator:
             print "+++++++++++++++++i+++++++++++++++++++++   ",i-1
 
             curr_grid_size = grid_size
-            self.update_factor_graph()
-            self.update_grid()
+            self.grid, self.alpha, self.fac = cgrid.update_grid(self.grid, self.alpha, self.fac, cgrid.coefficient_thresholding, self.alpha_threshold)
 
             if curr_grid_size != self.grid.getSize():
-                print "updating alpha"
                 grid_size = self.grid.getSize()
-                print self.alpha
-                index_list = np.nonzero(self.alpha)
-                cnt = 0
-                new_alpha = [len(index_list)]
-                for i in index_list[0]:
-                    print i
-                    new_alpha[cnt] = self.alpha[int(i)]
-                    cnt = cnt + 1
-                print new_alpha
+                self.update_coefficients()
+                """Recompute regularozation factor and prior info and expected value"""
+                A = self.compute_regfactor()
+                prior_info = self.calculate_prior_info(self.data["data"])
+                mcmc_expVal = self.compute_nl_term(100)
         
-                self.alpha = DataVector(new_alpha)
-
-            print "------------------------------factors---", self.fac.factors
-
-
         print "Alpha: ",self.alpha
         
         return self.grid, DataVector(self.alpha)
         
     def evaluate_density_function(self, dim, inputData):
         """
-        arguments -- dim
-        returns -- f(x) = \exp{(\sum_{i=1}^{n} \alpha_i \varphi_i(x))} -- A list of values corresponding to each data points
+        arguments -- dim, input data
+        returns -- f(x) = \exp{(\sum_{i=1}^{n} \alpha_i \varphi_i(x))} -- A list of values (density) corresponding to each data point
         """
-        #result = []
-        '''
-        q = DataVector(dim)
-        for i in xrange(inputData.getNrows()):
-            inputData.getRow(i,q)
-            value = createOperationEval(self.grid).eval(self.alpha,q)
-            result.append(value)
- 
-        result = np.exp(result)
-        '''
         operationEvaluation = createOperationMultipleEval(self.grid, inputData)
         y = DataVector(inputData.getNrows())
         operationEvaluation.mult(self.alpha, y)

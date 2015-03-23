@@ -67,14 +67,10 @@ def open_file(filename):
         return readDataTrivial(filename)
         
 def visualize_result(training, result, dim):
-
-    #x_axis = np.arange(0, 500, 0.1)
-
-    #plt.plot(x_axis, result, 'r--', x_axis, kde_result, 'b-')
-    #plt.show()
-
-    #hist(result)
-    #show()
+   
+    for i in xrange(len(result)):
+        if result[i] == 1:
+            print "Debug result: ",result[i], " ",x[i]
 
     x = DataVector(training.getNrows())
     y = DataVector(training.getNrows()) 
@@ -93,10 +89,11 @@ def visualize_result(training, result, dim):
         p = ax.scatter(x, y, z, c=result)
         fig.colorbar(p)
     elif dim == 1:
+        #result = result * 4
         pdf_true = norm(0.5, 0.1).pdf(x)
         fig, ax = plt.subplots()
-        ax.plot(x, result, color='blue', alpha=0.5, lw=3)
-        ax.fill(x, pdf_true, ec='gray', fc='gray', alpha=0.4)
+        ax.scatter(x, result, color='blue')
+        ax.scatter(x, pdf_true, color='gray')
     
     plt.show()
         
@@ -105,7 +102,7 @@ def do_density_estimation():
     dim = data["data"].getNcols()
     num_data = data["data"].getNrows()
     
-    sgde = SG_DensityEstimator(data, options.level, options.regparam, options.alpha_threshold)
+    sgde = SG_DensityEstimator(data, options.level, options.regparam, options.regstr, options.alpha_threshold)
     
     grid, alpha = sgde.compute_coefficients()
 
@@ -122,7 +119,8 @@ if __name__=='__main__':
     parser.add_option("-l", "--level", action="store", type="int", dest="level", help="Gridlevel")
     parser.add_option("-m", "--mode", action="store", type="string", default="apply", dest="mode", help="Specifies the action to do. Get help for the mode please type --mode help.")
     parser.add_option("-L", "--lambda", action="store", type="float",default=0.01, metavar="LAMBDA", dest="regparam", help="Lambda")
-    parser.add_option("-a", "--alphath", action="store", type="float",default=0.25, metavar="AlphaThreshold", dest="alpha_threshold", help="AlphaThreshold")
+    parser.add_option("-R", "--regstr", action="store", type="string",default='laplace', metavar="REGSTR", dest="regstr", help="RegStrategy")
+    parser.add_option("-a", "--alphath", action="store", type="float",default=0.5, metavar="AlphaThreshold", dest="alpha_threshold", help="AlphaThreshold")
     parser.add_option("-i", "--imax", action="store", type="int",default=500, metavar="MAX", dest="imax", help="Max number of iterations")
     parser.add_option("-d", "--data", action="append", type="string", dest="data", help="Filename for the Datafile.")
     parser.add_option("-v", "--verbose", action="store_true", default=False, dest="verbose", help="Provides extra output")
