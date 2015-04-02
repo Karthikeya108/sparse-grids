@@ -42,7 +42,7 @@ class SG_DensityEstimator:
         
         """Create a fully connected factor graph"""
         self.fac = Factor_Graph(int(self.dim))
-        self.fac.create_factor_graph(int(gridLevel))
+        self.fac.create_factor_graph(int(self.dim))
         
         """Initialize the Sampling Module"""
         self.model = pm.Model(input=make_model(self.grid, self.alpha, self.fac), name="sg_normal_indep")
@@ -230,6 +230,6 @@ class SG_DensityEstimator:
         operationEvaluation = createOperationMultipleEval(self.grid, inputData)
         y = DataVector(inputData.getNrows())
         operationEvaluation.mult(self.alpha, y)
-        e = np.exp(y.array())
+        #e = np.exp(y.array())
         
-        return e
+        return y.array()

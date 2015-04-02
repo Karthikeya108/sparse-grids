@@ -12,8 +12,9 @@ def coefficient_thresholding(grid, alpha, fac, *args):
         alpha_threshold = args[0]
         alpha_levels = {}
         max_len = 0
+        storage = grid.getStorage()
         for k in xrange(grid.getSize()):
-            grid_index = grid.getStorage().get(k)
+            grid_index = storage.get(k)
             levels = tuple()
             for d in xrange(fac.dim):
                 """Fetch the interacting factors"""
@@ -28,8 +29,8 @@ def coefficient_thresholding(grid, alpha, fac, *args):
         Delete all the higher order interacting factors in the factor_graph which are higher 
         than the maximum length of the <interacting factors> obtained in the previuos step
         """
-        if fac.dim > max_len+1:
-            for k in xrange(fac.dim-1,max_len,-1):
+        if fac.dim > max_len:
+            for k in xrange(fac.dim,max_len,-1):
                 fac.factors[k] = []
 
         level_alphas = {}
@@ -41,18 +42,19 @@ def coefficient_thresholding(grid, alpha, fac, *args):
 
         delete_list = []
         for key, value in level_alphas.iteritems():
-            #print "ALpha avg: ",  sum(np.absolute(value))/float(len(value))
+            print "Alpha mean: ",  np.mean(np.absolute(value))
 
             """
             if the average absolute values of the alphas (co-efficients) corresponding 
             to a <interacting factor> tuple is less than some <alpha_threshold> then 
             add the <interacting factor> tuple to the delete list
             """
-            if sum(np.absolute(value))/float(len(value)) < alpha_threshold:
+            print key
+            if np.mean(np.absolute(value)) < alpha_threshold:
                 delete_list[len(delete_list):] = [key]
 
         fac.coarsen_factor_graph(delete_list)
- 
+        print "***********Factors************** ", fac.factors 
         return fac
 
 def coarsening_function(grid, alpha, factor_graph):
@@ -71,13 +73,13 @@ def coarsening_function(grid, alpha, factor_graph):
             """Fetch the interacting factors"""
             if grid_index.getLevel(d) != 1:
                 levels = levels + (d,)
-    if len(levels) != 0:
-        levels = tuple(sorted(levels))
-        nInteract_factors = factor_graph.factors[len(levels)]
-        """If the corresponding interaction is not in the factor graph then set the correspoding alpha to 0"""
-        if levels not in nInteract_factors:
-            alpha[i] = 0
-            delete_counter += 1
+        if len(levels) != 0:
+            levels = tuple(sorted(levels))
+            nInteract_factors = factor_graph.factors[len(levels)]
+            """If the corresponding interaction is not in the factor graph then set the correspoding alpha to 0"""
+            if levels not in nInteract_factors:
+                alpha[i] = 0
+                delete_counter += 1
 
     coarseningFunctor = pysgpp.SurplusCoarseningFunctor(alpha, delete_counter, 0.5)
     grid.createGridGenerator().coarsen(coarseningFunctor, alpha)

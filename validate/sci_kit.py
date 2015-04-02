@@ -19,7 +19,7 @@ def kde_scipy(data, dim):
 
 def kde_scikit(data, dim):
 	data = data.T
-	kde = KernelDensity(kernel='gaussian', bandwidth=0.02).fit(data)
+	kde = KernelDensity(kernel='gaussian', bandwidth=0.08).fit(data)
 	density = kde.score_samples(data)
 
 	if dim < 4:
@@ -33,7 +33,7 @@ def plotDD(data, density, dim):
         if dim == 3:
 		fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
                 x, y, z = data
-                p = ax.scatter(x, y, z, c=density)
+                p = ax.plot_surface(x, y, z, density)
                 fig.colorbar(p)
         elif dim == 2:
 		fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
@@ -77,9 +77,9 @@ def kde_eval(filename, dim):
 	return scipy_result, scikit_result
 
 
-#val1, val2 = kde_eval('data/ripleyGarcke.train', 2)
+val1, val2 = kde_eval('data/ripleyGarcke.train', 2)
 #val1, val2 = kde_eval('data/3DOption/X_normalized.txt', 2)
-val1, val2 = kde_eval('data/toy3.txt', 3)
+#val1, val2 = kde_eval('data/toy1.txt', 1)
 
 #x_axis = np.arange(0, 500, 0.1)
 
@@ -92,4 +92,3 @@ val1, val2 = kde_eval('data/toy3.txt', 3)
 
 #hist(val2)
 #show()
-

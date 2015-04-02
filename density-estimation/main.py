@@ -67,6 +67,8 @@ def open_file(filename):
         return readDataTrivial(filename)
         
 def visualize_result(training, result, dim):
+
+    result = np.exp(result)
    
     for i in xrange(len(result)):
         if result[i] == 1:
@@ -96,6 +98,23 @@ def visualize_result(training, result, dim):
         ax.scatter(x, pdf_true, color='gray')
     
     plt.show()
+
+def classify(result, labels):
+    result_labels = []
+    for i in xrange(len(labels)):
+        if result[i] <= 0:
+            result_labels.append(-1.0)
+        else:
+            result_labels.append(1.0)
+    
+    correct = 0
+    for k in xrange(len(result_labels)):
+        if result_labels[k] == labels[k]:
+            correct = correct + 1
+
+    print "Accuracy: ",float(correct)/len(labels)
+
+    print result_labels
         
 def do_density_estimation():
     data = open_file(options.data[0])
@@ -108,7 +127,10 @@ def do_density_estimation():
 
     result = sgde.evaluate_density_function(dim, data["data"])
 
-    print "Mean of the result: ",np.mean(result)
+    print "Mean of the result: ",np.mean(np.exp(result))
+
+    if options.classify:
+        classify(result, data["classes"])
    
     if dim < 4:
         visualize_result(data["data"], result, dim)
@@ -124,6 +146,7 @@ if __name__=='__main__':
     parser.add_option("-i", "--imax", action="store", type="int",default=500, metavar="MAX", dest="imax", help="Max number of iterations")
     parser.add_option("-d", "--data", action="append", type="string", dest="data", help="Filename for the Datafile.")
     parser.add_option("-v", "--verbose", action="store_true", default=False, dest="verbose", help="Provides extra output")
+    parser.add_option("--classify", action="store_true", default=False, dest="classify", help="Classify the data")
     
     (options,args)=parser.parse_args()
     
