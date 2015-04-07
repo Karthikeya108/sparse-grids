@@ -56,6 +56,7 @@ def exec_mode(mode):
     # execute action
     modes[mode]['action']()
     
+
 def open_file(filename):
     """
     arguments -- filename
@@ -66,6 +67,7 @@ def open_file(filename):
     else:
         return readDataTrivial(filename)
         
+
 def visualize_result(training, result, dim):
    
     for i in xrange(len(result)):
@@ -97,14 +99,20 @@ def visualize_result(training, result, dim):
     
     plt.show()
         
+
 def do_density_estimation():
     data = open_file(options.data[0])
+    #FIXME: whay toy2.txt contains the 3rd column with 1s?
     dim = data["data"].getNcols()
     num_data = data["data"].getNrows()
     
-    sgde = SG_DensityEstimator(data, options.level, options.regparam, options.regstr, options.alpha_threshold)
+    sgde = SG_DensityEstimator(data, options.level, options.regparam, 
+                               options.regstr, alpha_threshold=options.alpha_threshold,
+                               sampling_size_init=10,
+                               sampling_size_first=1000, sampling_size_last=1000,
+                               epsilon=1e-4)
     
-    grid, alpha = sgde.compute_coefficients()
+    grid, alpha = sgde.run()
 
     result = sgde.evaluate_density_function(dim, data["data"])
 
@@ -113,6 +121,7 @@ def do_density_estimation():
     if dim < 4:
         visualize_result(data["data"], result, dim)
         
+
 if __name__=='__main__':
     """Initialize OptionParser, set Options"""
     parser = OptionParser()

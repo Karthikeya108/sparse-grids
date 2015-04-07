@@ -1,0 +1,15 @@
+digraph G {
+"psi_1(1,)" [shape=box];
+anova [shape=invtriangle];
+anova -> "psi_1(1,)"  [label=anova];
+x0;
+x0 -> anova  [label=x];
+x1;
+x1 -> anova  [label=x];
+"psi_2(0, 1)" [shape=box];
+anova -> "psi_2(0, 1)"  [label=anova];
+psi_0 [shape=box];
+anova -> psi_0  [label=anova];
+"psi_1(0,)" [shape=box];
+anova -> "psi_1(0,)"  [label=anova];
+}
