@@ -1,6 +1,6 @@
 import sys
 sys.path.append('/home/karthikeya/svn/repo/lib/pysgpp')
-sys.path.append('/home/perun/opt/eclipse/plugins/org.python.pydev_3.9.2.201502050007/pysrc')
+sys.path.append('/usr/share/eclipse/plugins/plugins/org.python.pydev_3.9.2.201502050007/pysrc')
 from matplotlib.pylab import *
 from pysgpp import *
 from math import *
@@ -27,7 +27,7 @@ class SG_DensityEstimator:
         arguments -- Input Data, Grid Level, Regularization Parameter (lambda), Alpha Threshold for Coarsening the Factor Graph
         returns -- SG_DensityEstimator Object
         """
-        self.data = data['data']
+        self.data = data
         self.gridLevel = gridLevel
         self.regparam = regparam
         self.regstr = regstr
@@ -42,7 +42,7 @@ class SG_DensityEstimator:
         self.alpha_true = kwargs.get('alpha_true', None)
         #pydevd.settrace()
 
-        self.dim = data["data"].getNcols()
+        self.dim = data.getNcols()
         
         # Create a ModLinear Grid
         self.grid = Grid.createModLinearGrid(self.dim)
@@ -57,7 +57,7 @@ class SG_DensityEstimator:
         
         # Create a fully connected factor graph
         self.factor_graph = Factor_Graph(int(self.dim))
-        self.factor_graph.create_factor_graph(int(gridLevel))
+        self.factor_graph.create_factor_graph(2)
         
         # Initialize the Sampling Module
         self.model = pm.Model(input=make_model(self.grid, self.alpha, self.factor_graph), 
@@ -217,14 +217,14 @@ class SG_DensityEstimator:
                 try:
                     int_val += 1.0/(slope + 1e-8) * (np.exp(slope*stepsize + b) - np.exp(b))
                 except:
-                    pydevd.settrace();
+                    #pydevd.settrace();
                     pass
         
         # log of fraction, hence difference of logs
         try:
             result = funcval_dv[nodes.shape[0]] - np.log(int_val)
         except:
-            pydevd.settrace();
+            #pydevd.settrace();
             pass
         return result
             
@@ -366,7 +366,7 @@ class SG_DensityEstimator:
             # TODO: the call to self.compute_pseudo_loglikelihood(self.alpha) can be saved
             negate_loglike = lambda theta: -self.compute_pseudo_loglikelihood(theta)
             if f_val_at_alpha == None: f_val_at_alpha = negate_loglike(self.alpha)
-            pydevd.settrace()
+            #pydevd.settrace()
             learning_rate, f_count, f_val_at_alpha = sp.optimize.linesearch.line_search_armijo(negate_loglike, 
                         self.alpha, alpha_direction, -p_k, f_val_at_alpha, alpha0=.3)
             if learning_rate == None or learning_rate < 0:
@@ -395,18 +395,30 @@ class SG_DensityEstimator:
             print  "+++++++++++++++++iteration_step+++++++++++++++++++++   ",iteration_step
             
             # TODO: call grid compression 
-#            self.grid, self.alpha, self.factor_graph = grid_coarsener.update_grid(self.grid, self.alpha,
-#                 self.factor_graph, grid_coarsener.coefficient_thresholding, self.alpha_threshold)
-             
-            # Recompute regularozation factor and prior info and expected value
-#             A = self.compute_regfactor() #superfast, 'cause implicit
-#             E_empir = grid_coarsener.compress_array(E_empir) #self.calc_empirical_expected_values(self.data["data"])
-#             E_model = grid_coarsener.compress_array(E_model) #self.calc_model_expected_values(100)
-#             self.alpha = grid_coarsener.compress_array(self.alpha)
+            curr_grid_size = self.grid.getSize()
+
+            #Choosing the alpha_threshold to be the mean of the absolute values of the co-efficients estimated in the first iteration
+            if iteration_step == 1:
+                self.alpha_threshold = np.mean(np.absolute(self.alpha)) 
+
+            print "Alpha Treshold: ", self.alpha_threshold
+
+            self.grid, self.alpha, self.factor_graph = grid_coarsener.update_grid(self.grid, self.alpha,
+                 self.factor_graph, grid_coarsener.coefficient_thresholding, self.alpha_threshold)
+            if curr_grid_size != self.grid.getSize(): 
+                # Recompute regularozation factor and prior info, expected value and NEGATIVE gradient of the likelihood
+                A = self.compute_regfactor() #superfast, 'cause implicit
+                #E_empir = grid_coarsener.compress_array(E_empir) 
+                E_empir = self.calc_empirical_expected_values(self.data)
+                #E_model = grid_coarsener.compress_array(E_model) 
+                E_model = self.calc_model_expected_values(self.sampling_size_init)
+                #self.alpha = grid_coarsener.compress_array(self.alpha)
+                b = E_empir - E_model - A.dot(self.alpha) #NEGATIVE gradient of the likelihood
             
             iteration_step += 1
                 
-        print "Alpha: ",self.alpha
+        print "Alpha: ", self.alpha
+        print "Factors: ", self.factor_graph.factors 
         
         return self.grid, DataVector(self.alpha)
         

@@ -153,9 +153,9 @@ def readDataTrivial(filename, delim = None, hasclass = True):
     # cleaning up and return
     fin.close()
     if hasclass:
-        return {"data": DataMatrix(data), "classes": DataVector(classes), "filename":filename}
+        return {"data": data, "classes": classes, "filename": filename}
     else:
-        return {"data": DataMatrix(data), "filename":filename}
+        return {"data": data, "filename": filename}
 
 #-------------------------------------------------------------------------------
 ## @brief Reads in (multidimensional) data from an ARFF file.
@@ -209,9 +209,9 @@ def readDataARFF(filename):
     # cleaning up and return
     fin.close()
     if hasclass:
-        return {"data": DataMatrix(data), "classes": DataVector(classes), "filename":filename}
+        return {"data": data, "classes": classes, "filename":filename}
     else:
-        return {"data": DataMatrix(data), "filename":filename}
+        return {"data": data, "filename":filename}
 
 
 #-------------------------------------------------------------------------------

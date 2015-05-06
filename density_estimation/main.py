@@ -5,8 +5,9 @@ import sys
 sys.path.append('/home/karthikeya/svn/repo/lib/pysgpp')
 #Required for 'visualizeResult' method
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d import axes3d, Axes3D
 from scipy.stats import norm
+from sklearn.covariance import empirical_covariance
 
 def exec_mode(mode):
     """
@@ -69,29 +70,26 @@ def open_file(filename):
         
 
 def visualize_result(training, result, dim):
-   
+    '''   
     for i in xrange(len(result)):
         if result[i] == 1:
             print "Debug result: ",result[i], " ",x[i]
-
-    x = DataVector(training.getNrows())
-    y = DataVector(training.getNrows()) 
-    
-    training.getColumn(0,x)
-    training.getColumn(1,y)
+    '''
+    training = np.array(training)
+    x = training[:,0]
 
     if dim == 2:
-        fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
+        y = training[:,1]
+        fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))        
         p = ax.scatter(x, y, c=result)
         fig.colorbar(p)
     elif dim == 3:
         fig, ax = plt.subplots(subplot_kw=dict(projection='3d'))
-        z = DataVector(training.getNrows())
-        training.getColumn(2,z)
+        y = training[:,1]
+        z = training[:,2]
         p = ax.scatter(x, y, z, c=result)
         fig.colorbar(p)
     elif dim == 1:
-        #result = result * 4
         pdf_true = norm(0.5, 0.1).pdf(x)
         fig, ax = plt.subplots()
         ax.scatter(x, result, color='blue')
@@ -101,12 +99,12 @@ def visualize_result(training, result, dim):
         
 
 def do_density_estimation():
-    data = open_file(options.data[0])
-    #FIXME: whay toy2.txt contains the 3rd column with 1s?
-    dim = data["data"].getNcols()
-    num_data = data["data"].getNrows()
+    data_dict = open_file(options.data[0])
+    training_data = DataMatrix(data_dict["data"])
+    dim = training_data.getNcols()
+    num_data = training_data.getNrows()
     
-    sgde = SG_DensityEstimator(data, options.level, options.regparam, 
+    sgde = SG_DensityEstimator(training_data, options.level, options.regparam, 
                                options.regstr, alpha_threshold=options.alpha_threshold,
                                sampling_size_init=10,
                                sampling_size_first=1000, sampling_size_last=1000,
@@ -114,12 +112,12 @@ def do_density_estimation():
     
     grid, alpha = sgde.run()
 
-    result = sgde.evaluate_density_function(dim, data["data"])
+    result = sgde.evaluate_density_function(dim, training_data)
 
     print "Mean of the result: ",np.mean(result)
    
     if dim < 4:
-        visualize_result(data["data"], result, dim)
+        visualize_result(data_dict["data"], result, dim)
         
 
 if __name__=='__main__':
@@ -129,6 +127,7 @@ if __name__=='__main__':
     parser.add_option("-m", "--mode", action="store", type="string", default="apply", dest="mode", help="Specifies the action to do. Get help for the mode please type --mode help.")
     parser.add_option("-L", "--lambda", action="store", type="float",default=0.01, metavar="LAMBDA", dest="regparam", help="Lambda")
     parser.add_option("-R", "--regstr", action="store", type="string",default='laplace', metavar="REGSTR", dest="regstr", help="RegStrategy")
+    #alpha_threshold will be overridden later in the code
     parser.add_option("-a", "--alphath", action="store", type="float",default=0.5, metavar="AlphaThreshold", dest="alpha_threshold", help="AlphaThreshold")
     parser.add_option("-i", "--imax", action="store", type="int",default=500, metavar="MAX", dest="imax", help="Max number of iterations")
     parser.add_option("-d", "--data", action="append", type="string", dest="data", help="Filename for the Datafile.")
