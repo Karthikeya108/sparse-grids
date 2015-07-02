@@ -59,7 +59,7 @@ factors passed as parameter
                                 print(d)
                                 d = tuple()
                 #Individual factors should not be deleted
-                if len(d) > 1:
+                if len(d) > 1 and len(d) in self.factors:
                     print(d)
                     print "Deleting factors: ",d
                     self.factors[len(d)].remove(tuple(sorted(d)))
@@ -87,4 +87,6 @@ factors passed as parameter
                 
     def contains(self, factor):
         """checks if the factor graph contains given factor"""
-        return factor in self.factors[len(factor)]
+        if len(factor) in self.factors:
+            return factor in self.factors[len(factor)]
+        return False
