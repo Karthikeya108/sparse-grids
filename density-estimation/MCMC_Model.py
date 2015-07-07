@@ -19,13 +19,13 @@ def make_model(grid, alpha, factor_graph):
            the individual ANOVA components of the result"""
         x = np.hstack(x).reshape(1, -1)
         dataPoint = pysgpp.DataMatrix(x)
-        result = pysgpp.DataVector(grid.getSize())
-        result.setAll(0.0)
+        phi_vector = pysgpp.DataVector(grid.getSize())
+        phi_vector.setAll(0.0)
         a = pysgpp.DataVector(1)
         a[0] = 1.0
         opMultipleEval = pysgpp.createOperationMultipleEval(grid, dataPoint)
-        opMultipleEval.multTranspose(a, result)
-        result = result.array()*alpha.array()
+        opMultipleEval.multTranspose(a, phi_vector)
+        phi_vector = phi_vector.array() * alpha
         
         anovaComponents = {(-1,):0}
         for key, value in factor_graph.factors.iteritems():
@@ -42,11 +42,11 @@ def make_model(grid, alpha, factor_graph):
                     key.append(d)
 
             if key == []:
-                anovaComponents[(-1,)] += result[i]
+                anovaComponents[(-1,)] += phi_vector[i]
             else:
                 key = tuple(key)
                 if key in anovaComponents:
-                    anovaComponents[key] += result[i]
+                    anovaComponents[key] += phi_vector[i]
 
         return anovaComponents # it is fine to return dictionary
             
